@@ -1,0 +1,19 @@
+{
+  "name": "@askpdf/queue",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@askpdf/contracts": "workspace:*",
+    "bullmq": "6.3.4",
+    "ioredis": "6.0.0"
+  }
+}

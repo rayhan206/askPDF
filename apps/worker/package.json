@@ -1,0 +1,25 @@
+{
+  "name": "@askpdf/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch --env-file=../../.env src/worker.ts",
+    "start": "node --env-file=../../.env dist/worker.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@askpdf/ai": "workspace:*",
+    "@askpdf/config": "workspace:*",
+    "@askpdf/contracts": "workspace:*",
+    "@askpdf/database": "workspace:*",
+    "@askpdf/observability": "workspace:*",
+    "@askpdf/queue": "workspace:*",
+    "@askpdf/rag": "workspace:*",
+    "@askpdf/storage": "workspace:*",
+    "bullmq": "6.3.4",
+    "mongoose": "9.9.4"
+  }
+}

@@ -1,0 +1,87 @@
+name: askpdf
+
+services:
+  mongo:
+    image: mongo:8.0.29
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:''rs0'',members:[{_id:0,host:''mongo:27017''}]}).ok }" | grep 1',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mongo-user-init:
+    image: mongo:8.0.29
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["mongosh", "mongodb://mongo:27017/admin", "--file", "/init/mongo-init.js"]
+    volumes:
+      - ./scripts/docker/mongo-init.js:/init/mongo-init.js:ro
+
+  redis:
+    image: redis:8.2.9-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory-policy",
+        "noeviction",
+        "--requirepass",
+        "askpdf_redis_password",
+      ]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "askpdf_redis_password", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: askpdf_local_access
+      MINIO_ROOT_PASSWORD: askpdf_local_secret_change_before_deploy
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5174
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9002:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      [
+        "/bin/sh",
+        "-ec",
+        "mc alias set local http://minio:9000 askpdf_local_access askpdf_local_secret_change_before_deploy && mc mb --ignore-existing local/askpdf-private && mc anonymous set none local/askpdf-private",
+      ]
+
+volumes:
+  mongo-data:
+  redis-data:
+  minio-data:
