@@ -15,7 +15,7 @@ import {
   WorkspaceMemberModel,
 } from "@askpdf/database";
 import type { GeminiProvider } from "@askpdf/ai";
-import type { AskPdfQueues } from "@askpdf/queue";
+import { buildIngestJobId, type AskPdfQueues } from "@askpdf/queue";
 import { citationExcerptIsValid, reciprocalRankFusion } from "@askpdf/rag";
 import type { ObjectStorage } from "@askpdf/storage";
 import { AppError, notFound } from "./errors.js";
@@ -149,7 +149,7 @@ export class ResourceService {
       return {
         document: documentDto(existing),
         job: {
-          id: `${id(existing._id)}:${existing.activeProcessingVersion}`,
+          id: buildIngestJobId(id(existing._id), existing.activeProcessingVersion),
           status: "queued" as const,
         },
       };
@@ -201,7 +201,7 @@ export class ResourceService {
         );
         if (!document) throw new AppError(500, "INTERNAL_ERROR", "Document creation failed.");
         documentId = document._id;
-        const jobId = `${id(document._id)}:1`;
+        const jobId = buildIngestJobId(id(document._id), 1);
         const [run] = await ProcessingRunModel.create(
           [
             {
@@ -335,7 +335,7 @@ export class ResourceService {
     document.failureCode = null;
     document.failureMessage = null;
     await document.save();
-    const jobId = `${id(document._id)}:${document.activeProcessingVersion}`;
+    const jobId = buildIngestJobId(id(document._id), document.activeProcessingVersion);
     const run = await ProcessingRunModel.create({
       workspaceId: document.workspaceId,
       documentId: document._id,

@@ -21,6 +21,14 @@ export function createRedisConnection(redisUrl: string): Redis {
   return new Redis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: true });
 }
 
+export function buildIngestJobId(documentId: string, processingVersion: number): string {
+  return `${documentId}-${processingVersion}`;
+}
+
+export function buildDeleteJobId(documentId: string): string {
+  return `delete-${documentId}`;
+}
+
 export class AskPdfQueues {
   readonly connection: Redis;
   readonly ingest: Queue<DocumentIngestJob>;
@@ -49,14 +57,14 @@ export class AskPdfQueues {
 
   async enqueueIngest(payload: DocumentIngestJob): Promise<string> {
     const validated = documentIngestJobSchema.parse(payload);
-    const jobId = `${validated.documentId}:${validated.processingVersion}`;
+    const jobId = buildIngestJobId(validated.documentId, validated.processingVersion);
     await this.ingest.add("document.ingest", validated, { ...this.jobOptions, jobId });
     return jobId;
   }
 
   async enqueueDelete(payload: DocumentDeleteJob): Promise<string> {
     const validated = documentDeleteJobSchema.parse(payload);
-    const jobId = `delete:${validated.documentId}`;
+    const jobId = buildDeleteJobId(validated.documentId);
     await this.deletion.add("document.delete", validated, { ...this.jobOptions, jobId });
     return jobId;
   }
