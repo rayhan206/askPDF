@@ -60,7 +60,11 @@ export class ObjectStorage {
         ContentType: contentType,
         Metadata: { sha256 },
       }),
-      { expiresIn },
+      {
+        expiresIn,
+        signableHeaders: new Set(["content-type"]),
+        unhoistableHeaders: new Set(["x-amz-meta-sha256"]),
+      },
     );
   }
 
