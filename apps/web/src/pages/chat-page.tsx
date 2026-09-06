@@ -59,10 +59,9 @@ export function ChatPage() {
       await navigate(`/ask/${item.id}`);
     },
   });
-  useEffect(
-    () => endRef.current?.scrollIntoView({ behavior: "smooth" }),
-    [conversation.data?.messages.length, ask.isPending],
-  );
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversation.data?.messages.length, ask.isPending]);
   const documentNames = useMemo(
     () => new Map((documents.data ?? []).map((document) => [document.id, document.displayName])),
     [documents.data],

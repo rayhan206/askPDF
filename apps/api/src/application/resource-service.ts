@@ -14,7 +14,7 @@ import {
   UploadIntentModel,
   WorkspaceMemberModel,
 } from "@askpdf/database";
-import type { GeminiProvider } from "@askpdf/ai";
+import type { AiProvider } from "@askpdf/ai";
 import { buildIngestJobId, type AskPdfQueues } from "@askpdf/queue";
 import { citationExcerptIsValid, reciprocalRankFusion } from "@askpdf/rag";
 import type { ObjectStorage } from "@askpdf/storage";
@@ -77,7 +77,7 @@ export class ResourceService {
     private readonly config: ServerConfig,
     private readonly storage: ObjectStorage,
     private readonly queues: AskPdfQueues,
-    private readonly ai: GeminiProvider | null,
+    private readonly ai: AiProvider | null,
   ) {}
 
   async requireMembership(
@@ -214,7 +214,7 @@ export class ResourceService {
               stageSequence: 0,
               progressPercent: 0,
               chunkingVersion: "chunk-v1",
-              embeddingModel: this.config.GEMINI_EMBEDDING_MODEL,
+              embeddingModel: this.ai?.embeddingModel ?? this.config.GEMINI_EMBEDDING_MODEL,
               embeddingDimension: this.config.GEMINI_EMBEDDING_DIMENSION,
               processingConfigurationVersion: "processing-v1",
             },
@@ -346,7 +346,7 @@ export class ResourceService {
       stageSequence: 0,
       progressPercent: 0,
       chunkingVersion: "chunk-v1",
-      embeddingModel: this.config.GEMINI_EMBEDDING_MODEL,
+      embeddingModel: this.ai?.embeddingModel ?? this.config.GEMINI_EMBEDDING_MODEL,
       embeddingDimension: this.config.GEMINI_EMBEDDING_DIMENSION,
       processingConfigurationVersion: "processing-v1",
     });
@@ -555,14 +555,24 @@ export class ResourceService {
     });
     if (!conversation) throw notFound("CONVERSATION_NOT_FOUND", "conversation");
     await this.requireMembership(id(conversation.workspaceId), userId);
-    const [messages, citations] = await Promise.all([
+    const [messages, citations, documents] = await Promise.all([
       MessageModel.find({ workspaceId: conversation.workspaceId, conversationId })
         .sort({ createdAt: 1, _id: 1 })
         .lean(),
       CitationModel.find({ workspaceId: conversation.workspaceId, conversationId })
         .sort({ ordinal: 1 })
         .lean(),
+      DocumentModel.find({
+        _id: { $in: conversation.selectedDocumentIds },
+        workspaceId: conversation.workspaceId,
+        deletedAt: null,
+      })
+        .select("displayName")
+        .lean(),
     ]);
+    const documentNames = new Map(
+      documents.map((document) => [id(document._id), document.displayName]),
+    );
     const citationsByMessage = new Map<string, typeof citations>();
     for (const citation of citations) {
       const key = id(citation.messageId);
@@ -586,6 +596,7 @@ export class ResourceService {
           citations: (citationsByMessage.get(id(message._id)) ?? []).map((citation) => ({
             id: id(citation._id),
             documentId: id(citation.documentId),
+            documentName: documentNames.get(id(citation.documentId)) ?? "Document",
             chunkId: id(citation.chunkId),
             processingVersion: citation.processingVersion,
             pageNumber: citation.pageNumber,
@@ -722,7 +733,8 @@ export class ResourceService {
         .update(question.trim().toLowerCase())
         .digest("hex"),
     });
-    if (!this.ai) {
+    const ai = this.ai;
+    if (!ai) {
       userMessage.status = "failed";
       userMessage.failureCode = "AI_PROVIDER_ERROR";
       await userMessage.save();
@@ -749,7 +761,7 @@ export class ResourceService {
         return this.answerResponse(userMessage, refusal, [], false);
       }
       const documentNames = new Map(documents.map((item) => [id(item._id), item.displayName]));
-      const generated = await this.ai.answer(
+      const generated = await ai.answer(
         question,
         evidence.map((item) => ({
           chunkId: item.id,
@@ -773,7 +785,7 @@ export class ResourceService {
                 content: generated.claims.map((claim) => claim.text).join("\n\n"),
                 replyToMessageId: userMessage._id,
                 insufficientEvidence: false,
-                modelName: this.config.GEMINI_GENERATION_MODEL,
+                modelName: ai.generationModel,
                 promptVersion: "answer-v1",
                 retrievalConfigurationVersion: "hybrid-v1",
                 retrievedChunkIds: evidence.map((item) => item.id),

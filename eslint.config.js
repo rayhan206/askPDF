@@ -15,6 +15,7 @@ export default tseslint.config(
       "eslint.config.js",
       "prettier.config.js",
       "scripts/docker/*.js",
+      "scripts/migrations/*.js",
     ],
   },
   js.configs.recommended,

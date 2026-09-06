@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Worker, UnrecoverableError, type Job } from "bullmq";
-import { GeminiProvider } from "@askpdf/ai";
+import { createAiProvider } from "@askpdf/ai";
 import { loadServerConfig } from "@askpdf/config";
 import {
   QUEUE_NAMES,
@@ -27,6 +27,7 @@ import { createLogger } from "@askpdf/observability";
 import { ProgressBus, createRedisConnection } from "@askpdf/queue";
 import { chunkPages, extractPdfPages } from "@askpdf/rag";
 import { ObjectStorage } from "@askpdf/storage";
+import { hasReachedStage, isFinalAttempt } from "./stages/retry-state.js";
 
 const config = loadServerConfig();
 const logger = createLogger(config.LOG_LEVEL).child({ service: "worker" });
@@ -41,15 +42,15 @@ const storage = new ObjectStorage({
   secretAccessKey: config.STORAGE_SECRET_ACCESS_KEY,
   forcePathStyle: config.STORAGE_FORCE_PATH_STYLE,
 });
-const ai = config.GEMINI_API_KEY
-  ? new GeminiProvider({
-      apiKey: config.GEMINI_API_KEY,
-      generationModel: config.GEMINI_GENERATION_MODEL,
-      embeddingModel: config.GEMINI_EMBEDDING_MODEL,
-      embeddingDimension: config.GEMINI_EMBEDDING_DIMENSION,
-      timeoutMs: config.GEMINI_REQUEST_TIMEOUT_MS,
-    })
-  : null;
+const ai = createAiProvider({
+  apiKey: config.GEMINI_API_KEY,
+  generationModel: config.GEMINI_GENERATION_MODEL,
+  embeddingModel: config.GEMINI_EMBEDDING_MODEL,
+  embeddingDimension: config.GEMINI_EMBEDDING_DIMENSION,
+  timeoutMs: config.GEMINI_REQUEST_TIMEOUT_MS,
+  allowLocalFallback: config.NODE_ENV !== "production" && config.AI_LOCAL_FALLBACK,
+});
+logger.info({ aiProvider: ai.providerName }, "AI provider configured");
 const progressBus = new ProgressBus(config.REDIS_URL, config.REDIS_KEY_PREFIX);
 const ingestConnection = createRedisConnection(config.REDIS_URL);
 const deleteConnection = createRedisConnection(config.REDIS_URL);
@@ -110,7 +111,17 @@ async function reportStage(
     },
     { new: true },
   ).lean();
-  if (!updated) throw new UnrecoverableError("STALE_STAGE_UPDATE");
+  if (!updated) {
+    const existing = await ProcessingRunModel.findOne({
+      _id: run.processingRunId,
+      processingVersion: run.processingVersion,
+      status: { $in: ["queued", "running"] },
+    })
+      .select("stageSequence")
+      .lean();
+    if (existing && hasReachedStage(existing.stageSequence, stageSequence)) return;
+    throw new UnrecoverableError("STALE_STAGE_UPDATE");
+  }
   await DocumentModel.updateOne(
     { _id: run.documentId, activeProcessingVersion: run.processingVersion, deletedAt: null },
     { $set: { status: stage, failureCode: null, failureMessage: null } },
@@ -170,8 +181,6 @@ async function storeChunks(
     config.CHUNK_OVERLAP_CHARACTERS,
   );
   if (chunks.length === 0) throw new UnrecoverableError("PDF_CONTAINS_NO_EXTRACTABLE_TEXT");
-  if (!ai) throw new Error("GEMINI_API_KEY is required to process documents");
-
   await ProcessingRunModel.updateOne(
     { _id: run.processingRunId, processingVersion: run.processingVersion },
     { $set: { extractedPageCount: pages.length, expectedChunkCount: chunks.length } },
@@ -206,7 +215,7 @@ async function storeChunks(
               tokenCount: chunk.tokenCount,
               contentHash: chunk.contentHash,
               embedding,
-              embeddingModel: config.GEMINI_EMBEDDING_MODEL,
+              embeddingModel: ai.embeddingModel,
               embeddingDimension: config.GEMINI_EMBEDDING_DIMENSION,
             },
           },
@@ -293,6 +302,7 @@ async function ingestDocument(job: Job<DocumentIngestJob>): Promise<void> {
     const message = error instanceof Error ? error.message : "Unknown processing failure";
     const cancelled = message === "PROCESSING_CANCELLED";
     const terminal = error instanceof UnrecoverableError;
+    const failed = terminal || isFinalAttempt(job.attemptsMade, job.opts.attempts);
     logger.error(
       { err: error, jobId: job.id, documentId: run.documentId },
       "Document ingestion failed",
@@ -302,13 +312,13 @@ async function ingestDocument(job: Job<DocumentIngestJob>): Promise<void> {
         { _id: run.processingRunId, processingVersion: run.processingVersion },
         {
           $set: {
-            status: cancelled ? "cancelled" : terminal ? "failed" : "running",
+            status: cancelled ? "cancelled" : failed ? "failed" : "running",
             errorCode: message.slice(0, 100),
-            completedAt: cancelled || terminal ? new Date() : null,
+            completedAt: cancelled || failed ? new Date() : null,
           },
         },
       ),
-      terminal
+      failed
         ? DocumentModel.updateOne(
             {
               _id: run.documentId,

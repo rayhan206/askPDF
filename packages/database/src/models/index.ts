@@ -440,8 +440,20 @@ const messageSchema = new Schema<MessageRecord>(
   { timestamps: true, strict: "throw" },
 );
 messageSchema.index({ workspaceId: 1, conversationId: 1, createdAt: 1, _id: 1 });
-messageSchema.index({ conversationId: 1, clientRequestId: 1 }, { unique: true, sparse: true });
-messageSchema.index({ replyToMessageId: 1, role: 1 }, { unique: true, sparse: true });
+messageSchema.index(
+  { conversationId: 1, clientRequestId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { role: "user", clientRequestId: { $type: "string" } },
+  },
+);
+messageSchema.index(
+  { replyToMessageId: 1, role: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { role: "assistant", replyToMessageId: { $type: "objectId" } },
+  },
+);
 
 export interface CitationRecord {
   workspaceId: Types.ObjectId;

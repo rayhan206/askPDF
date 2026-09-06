@@ -1,4 +1,4 @@
-import { GeminiProvider } from "@askpdf/ai";
+import { createAiProvider } from "@askpdf/ai";
 import { loadServerConfig } from "@askpdf/config";
 import { connectDatabase, disconnectDatabase } from "@askpdf/database";
 import { createLogger } from "@askpdf/observability";
@@ -25,15 +25,15 @@ const queues = new AskPdfQueues({
   attempts: config.JOB_ATTEMPTS,
   backoffBaseMs: config.JOB_BACKOFF_BASE_MS,
 });
-const ai = config.GEMINI_API_KEY
-  ? new GeminiProvider({
-      apiKey: config.GEMINI_API_KEY,
-      embeddingModel: config.GEMINI_EMBEDDING_MODEL,
-      generationModel: config.GEMINI_GENERATION_MODEL,
-      embeddingDimension: config.GEMINI_EMBEDDING_DIMENSION,
-      timeoutMs: config.GEMINI_REQUEST_TIMEOUT_MS,
-    })
-  : null;
+const ai = createAiProvider({
+  apiKey: config.GEMINI_API_KEY,
+  embeddingModel: config.GEMINI_EMBEDDING_MODEL,
+  generationModel: config.GEMINI_GENERATION_MODEL,
+  embeddingDimension: config.GEMINI_EMBEDDING_DIMENSION,
+  timeoutMs: config.GEMINI_REQUEST_TIMEOUT_MS,
+  allowLocalFallback: config.NODE_ENV !== "production" && config.AI_LOCAL_FALLBACK,
+});
+logger.info({ aiProvider: ai.providerName }, "AI provider configured");
 const authService = new AuthService(config);
 const resourceService = new ResourceService(config, storage, queues, ai);
 const app = createApp(config, { authService, resourceService, storage, queues, logger });
