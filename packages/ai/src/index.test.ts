@@ -18,7 +18,7 @@ describe("local development AI provider", () => {
     );
   });
 
-  it("returns evidence text with an exact page citation", async () => {
+  it("turns evidence into a readable answer with an exact page citation", async () => {
     const provider = new LocalDevelopmentAiProvider(16);
 
     const answer = await provider.answer("How did revenue change?", [
@@ -30,17 +30,49 @@ describe("local development AI provider", () => {
       },
     ]);
 
-    expect(answer.claims[0]).toEqual({
-      id: "claim-1",
-      text: "Revenue increased by twelve percent during the reporting period.",
-      citations: [
-        {
-          chunkId: "507f1f77bcf86cd799439011",
-          pageNumber: 7,
-          excerpt: "Revenue increased by twelve percent during the reporting period.",
-        },
-      ],
-    });
+    expect(answer.claims[0]?.text).toBe(
+      "**Relevant evidence**\n\nRevenue increased by twelve percent during the reporting period.",
+    );
+    expect(answer.claims[0]?.citations).toEqual([
+      {
+        chunkId: "507f1f77bcf86cd799439011",
+        pageNumber: 7,
+        excerpt: "Revenue increased by twelve percent during the reporting period.",
+      },
+    ]);
+  });
+
+  it("removes slide noise and connects a topic to its supporting explanation", async () => {
+    const provider = new LocalDevelopmentAiProvider(16);
+
+    const answer = await provider.answer("what is hill cpher", [
+      {
+        chunkId: "507f1f77bcf86cd799439012",
+        documentName: "cryptography.pdf",
+        pageNumber: 38,
+        text: "Polyalphabetic Substitution • In polyalphabetic substitution, each occurrence of a character may have a different substitute. • The relationship between a character in the plaintext to a character in the ciphertext is one-to-many. • Polyalphabetic ciphers hide the letter frequency of the underlying language. • Examples: Playfair Cipher, Hill Cipher, Vigenere Cipher Cryptography and Network Security 38",
+      },
+      {
+        chunkId: "507f1f77bcf86cd799439013",
+        documentName: "cryptography.pdf",
+        pageNumber: 2,
+        text: "Outline • Caesar Cipher • Hill Cipher • Vigenere Cipher Cryptography and Network Security 2",
+      },
+      {
+        chunkId: "507f1f77bcf86cd799439014",
+        documentName: "cryptography.pdf",
+        pageNumber: 4,
+        text: "Symmetric Cipher Model • This section describes the plaintext and the secret key used by the model.",
+      },
+    ]);
+
+    expect(answer.claims).toHaveLength(1);
+    expect(answer.claims[0]?.text).toContain(
+      "The document presents **Hill Cipher** as an example of **Polyalphabetic Substitution**.",
+    );
+    expect(answer.claims[0]?.text).toContain("**What that means in the document**");
+    expect(answer.claims[0]?.text).not.toContain("Outline");
+    expect(answer.claims[0]?.text).not.toContain("Cryptography and Network Security 38");
   });
 
   it("refuses to create a provider without credentials or an allowed fallback", () => {

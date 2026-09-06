@@ -21,6 +21,71 @@ import type { ObjectStorage } from "@askpdf/storage";
 import { AppError, notFound } from "./errors.js";
 
 const { Types } = mongoose;
+const ANSWER_PROMPT_VERSION = "answer-v2";
+const RETRIEVAL_CONFIGURATION_VERSION = "hybrid-v2";
+
+const LOCAL_RETRIEVAL_STOP_WORDS = new Set([
+  "about",
+  "and",
+  "are",
+  "can",
+  "describe",
+  "described",
+  "document",
+  "does",
+  "explain",
+  "for",
+  "from",
+  "how",
+  "pdf",
+  "please",
+  "say",
+  "that",
+  "the",
+  "this",
+  "what",
+  "which",
+  "with",
+]);
+
+function localTerms(value: string): string[] {
+  return (
+    value
+      .normalize("NFKC")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu) ?? []
+  ).filter((term) => term.length > 2 && !LOCAL_RETRIEVAL_STOP_WORDS.has(term));
+}
+
+function localEditDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        (current[rightIndex - 1] ?? 0) + 1,
+        (previous[rightIndex] ?? 0) + 1,
+        (previous[rightIndex - 1] ?? 0) + substitutionCost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? Math.max(left.length, right.length);
+}
+
+function localLexicalScore(questionTerms: string[], text: string): number {
+  const candidateTerms = new Set(localTerms(text));
+  return questionTerms.reduce((score, questionTerm) => {
+    if (candidateTerms.has(questionTerm)) return score + 3;
+    const fuzzyMatch = [...candidateTerms].some(
+      (candidateTerm) =>
+        Math.min(questionTerm.length, candidateTerm.length) >= 5 &&
+        localEditDistance(questionTerm, candidateTerm) <= 2,
+    );
+    return score + (fuzzyMatch ? 1 : 0);
+  }, 0);
+}
 
 const retrievalRecordSchema = z.strictObject({
   _id: z.unknown(),
@@ -752,8 +817,8 @@ export class ResourceService {
             "I could not find enough evidence in the selected documents to answer this question.",
           replyToMessageId: userMessage._id,
           insufficientEvidence: true,
-          promptVersion: "answer-v1",
-          retrievalConfigurationVersion: "hybrid-v1",
+          promptVersion: ANSWER_PROMPT_VERSION,
+          retrievalConfigurationVersion: RETRIEVAL_CONFIGURATION_VERSION,
           latencyMs: Date.now() - startedAt,
         });
         userMessage.status = "completed";
@@ -786,13 +851,13 @@ export class ResourceService {
                 replyToMessageId: userMessage._id,
                 insufficientEvidence: false,
                 modelName: ai.generationModel,
-                promptVersion: "answer-v1",
-                retrievalConfigurationVersion: "hybrid-v1",
+                promptVersion: ANSWER_PROMPT_VERSION,
+                retrievalConfigurationVersion: RETRIEVAL_CONFIGURATION_VERSION,
                 retrievedChunkIds: evidence.map((item) => item.id),
                 latencyMs: Date.now() - startedAt,
               },
             ],
-            { session: transaction },
+            { session: transaction, ordered: true },
           );
           if (!answer) throw new AppError(500, "INTERNAL_ERROR", "Answer persistence failed.");
           answerId = answer._id;
@@ -809,7 +874,7 @@ export class ResourceService {
               claimIds: citation.claimIds,
               ordinal,
             })),
-            { session: transaction },
+            { session: transaction, ordered: true },
           );
           userMessage.status = "completed";
           await userMessage.save({ session: transaction });
@@ -906,27 +971,28 @@ export class ResourceService {
     } catch {
       if (this.config.NODE_ENV === "production")
         throw new AppError(503, "SEARCH_UNAVAILABLE", "Hybrid search is unavailable.");
-      const terms = question
-        .toLowerCase()
-        .split(/\W+/)
-        .filter((term) => term.length > 2)
-        .slice(0, 8);
+      const questionTerms = localTerms(question).slice(0, 12);
       const local = await DocumentChunkModel.find({
         workspaceId,
         $or: filters,
-        ...(terms.length > 0 ? { lexicalText: { $regex: terms.join("|"), $options: "i" } } : {}),
       })
-        .limit(20)
+        .select("documentId processingVersion text lexicalText pageStart ordinal")
+        .limit(2_000)
         .lean();
-      lexicalResults = local.map((item, index) => ({
-        id: id(item._id),
-        documentId: id(item.documentId),
-        processingVersion: item.processingVersion,
-        text: item.text,
-        pageNumber: item.pageStart,
-        lexicalRank: index + 1,
-        score: 1 / (index + 1),
-      }));
+      lexicalResults = local
+        .map((item) => ({ item, score: localLexicalScore(questionTerms, item.lexicalText) }))
+        .filter(({ score }) => score > 0)
+        .sort((left, right) => right.score - left.score || left.item.ordinal - right.item.ordinal)
+        .slice(0, 20)
+        .map(({ item, score }, index) => ({
+          id: id(item._id),
+          documentId: id(item.documentId),
+          processingVersion: item.processingVersion,
+          text: item.text,
+          pageNumber: item.pageStart,
+          lexicalRank: index + 1,
+          score,
+        }));
     }
     const evidenceById = new Map(
       [...vectorResults, ...lexicalResults].map((item) => [item.id, item]),
@@ -1054,8 +1120,9 @@ export class ResourceService {
       meta: {
         cached,
         model: answer.modelName,
-        promptVersion: answer.promptVersion ?? "answer-v1",
-        retrievalConfigurationVersion: answer.retrievalConfigurationVersion ?? "hybrid-v1",
+        promptVersion: answer.promptVersion ?? ANSWER_PROMPT_VERSION,
+        retrievalConfigurationVersion:
+          answer.retrievalConfigurationVersion ?? RETRIEVAL_CONFIGURATION_VERSION,
         latencyMs: answer.latencyMs ?? 0,
       },
     };
