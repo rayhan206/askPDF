@@ -31,7 +31,7 @@ describe("local development AI provider", () => {
     ]);
 
     expect(answer.claims[0]?.text).toBe(
-      "**Relevant evidence**\n\nRevenue increased by twelve percent during the reporting period.",
+      "**Answer**\n\nRevenue increased by twelve percent during the reporting period.",
     );
     expect(answer.claims[0]?.citations).toEqual([
       {
@@ -40,6 +40,23 @@ describe("local development AI provider", () => {
         excerpt: "Revenue increased by twelve percent during the reporting period.",
       },
     ]);
+  });
+
+  it("connects a direct finding to its stated cause instead of dumping a raw chunk", async () => {
+    const provider = new LocalDevelopmentAiProvider(16);
+
+    const answer = await provider.answer("How did revenue change and what caused it?", [
+      {
+        chunkId: "507f1f77bcf86cd799439015",
+        documentName: "askpdf-revenue-report.pdf",
+        pageNumber: 1,
+        text: "Revenue Report Revenue increased by twelve percent. The increase was driven by subscription renewals.",
+      },
+    ]);
+
+    expect(answer.claims[0]?.text).toBe(
+      "**Answer**\n\nRevenue increased by twelve percent.\n\n**Supporting details**\n\n- The increase was driven by subscription renewals.",
+    );
   });
 
   it("removes slide noise and connects a topic to its supporting explanation", async () => {

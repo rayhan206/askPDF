@@ -21,7 +21,7 @@ import type { ObjectStorage } from "@askpdf/storage";
 import { AppError, notFound } from "./errors.js";
 
 const { Types } = mongoose;
-const ANSWER_PROMPT_VERSION = "answer-v2";
+const ANSWER_PROMPT_VERSION = "answer-v3";
 const RETRIEVAL_CONFIGURATION_VERSION = "hybrid-v2";
 
 const LOCAL_RETRIEVAL_STOP_WORDS = new Set([

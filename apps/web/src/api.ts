@@ -76,8 +76,10 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
+    this.name = "ApiError";
   }
 }
 
@@ -90,26 +92,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", csrfToken());
-  let response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  let response = await fetchApi(path, { ...options, headers });
   if (response.status === 401 && !path.startsWith("/auth/")) {
-    const refreshed = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    const refreshed = await fetchApi("/auth/refresh", {
       method: "POST",
-      credentials: "include",
     });
     if (refreshed.ok) {
       const refreshedPayload = (await refreshed.json()) as { data: { csrfToken: string } };
       persistCsrf(refreshedPayload.data.csrfToken);
       if (!["GET", "HEAD", "OPTIONS"].includes(method))
         headers.set("X-CSRF-Token", refreshedPayload.data.csrfToken);
-      response = await fetch(`${API_BASE_URL}${path}`, {
-        ...options,
-        headers,
-        credentials: "include",
-      });
+      response = await fetchApi(path, { ...options, headers });
     }
   }
   if (response.status === 204) return undefined as T;
@@ -123,6 +116,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     );
   }
   return (payload as { data: T }).data;
+}
+
+async function fetchApi(path: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      credentials: "include",
+    });
+  } catch (cause) {
+    throw new ApiError(
+      "AskPDF cannot reach its API. Check that the local services are running, then try again.",
+      0,
+      "API_UNAVAILABLE",
+      { cause },
+    );
+  }
 }
 
 function persistCsrf(value: string): void {
@@ -186,11 +195,21 @@ export const api = {
         contentType: "application/pdf",
       }),
     });
-    const uploaded = await fetch(intent.upload.url, {
-      method: "PUT",
-      headers: intent.upload.headers,
-      body: file,
-    });
+    let uploaded: Response;
+    try {
+      uploaded = await fetch(intent.upload.url, {
+        method: "PUT",
+        headers: intent.upload.headers,
+        body: file,
+      });
+    } catch (cause) {
+      throw new ApiError(
+        "AskPDF cannot reach object storage. Check that the local services are running, then try again.",
+        0,
+        "STORAGE_UNAVAILABLE",
+        { cause },
+      );
+    }
     if (!uploaded.ok)
       throw new ApiError(
         "Object storage rejected the upload.",
