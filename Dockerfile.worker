@@ -1,0 +1,20 @@
+FROM node:24.18.0-bookworm-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+WORKDIR /app
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY apps/worker/package.json apps/worker/package.json
+COPY packages ./packages
+COPY apps/worker ./apps/worker
+COPY tsconfig.base.json ./
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @askpdf/worker... build
+
+ENV NODE_ENV=production
+
+CMD ["node", "apps/worker/dist/worker.js"]

@@ -9,7 +9,8 @@ const serverEnvironmentSchema = z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
       .default("info"),
     API_HOST: z.string().default("0.0.0.0"),
-    API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    API_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    PORT: z.coerce.number().int().min(1).max(65535).optional(),
     API_PUBLIC_URL: z.url().default("http://localhost:4000"),
     WEB_ORIGIN: z.url().default("http://localhost:5173"),
     MONGODB_URI: z.string().min(1),
@@ -67,7 +68,11 @@ const serverEnvironmentSchema = z
         message: "GEMINI_API_KEY is required in production",
       });
     }
-  });
+  })
+  .transform((configuration) => ({
+    ...configuration,
+    API_PORT: configuration.API_PORT ?? configuration.PORT ?? 4000,
+  }));
 
 export type ServerConfig = z.infer<typeof serverEnvironmentSchema>;
 

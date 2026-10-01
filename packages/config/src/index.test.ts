@@ -27,6 +27,25 @@ describe("AI configuration", () => {
     expect(configuration.AI_LOCAL_FALLBACK).toBe(true);
   });
 
+  it("uses a platform-provided PORT when API_PORT is absent", () => {
+    const configuration = loadServerConfig({
+      ...REQUIRED_ENVIRONMENT,
+      PORT: "8080",
+    });
+
+    expect(configuration.API_PORT).toBe(8080);
+  });
+
+  it("prefers API_PORT over a platform-provided PORT", () => {
+    const configuration = loadServerConfig({
+      ...REQUIRED_ENVIRONMENT,
+      API_PORT: "4001",
+      PORT: "8080",
+    });
+
+    expect(configuration.API_PORT).toBe(4001);
+  });
+
   it("requires Gemini credentials in production", () => {
     expect(() =>
       loadServerConfig({
