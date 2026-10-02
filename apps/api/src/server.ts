@@ -7,6 +7,7 @@ import { ObjectStorage } from "@askpdf/storage";
 import { AuthService } from "./application/auth-service.js";
 import { ResourceService } from "./application/resource-service.js";
 import { createApp } from "./app.js";
+import { WorkerWakeClient } from "./services/worker-wake-client.js";
 
 const config = loadServerConfig();
 const logger = createLogger(config.LOG_LEVEL);
@@ -35,7 +36,8 @@ const ai = createAiProvider({
 });
 logger.info({ aiProvider: ai.providerName }, "AI provider configured");
 const authService = new AuthService(config);
-const resourceService = new ResourceService(config, storage, queues, ai);
+const workerWakeClient = new WorkerWakeClient(config.WORKER_PUBLIC_URL, logger);
+const resourceService = new ResourceService(config, storage, queues, ai, workerWakeClient);
 const app = createApp(config, { authService, resourceService, storage, queues, logger });
 const server = app.listen(config.API_PORT, config.API_HOST, () =>
   logger.info({ host: config.API_HOST, port: config.API_PORT }, "api listening"),

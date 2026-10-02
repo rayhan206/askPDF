@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Transform } from "node:stream";
@@ -388,11 +389,24 @@ for (const worker of [ingestWorker, deleteWorker]) {
 
 logger.info({ concurrency: config.WORKER_CONCURRENCY }, "Ask-PDF worker started");
 
+const healthServer = createServer((request, response) => {
+  if (request.url !== "/health") {
+    response.writeHead(404).end();
+    return;
+  }
+  response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify({ status: "ok", service: "askpdf-worker" }));
+});
+healthServer.listen(config.API_PORT, config.API_HOST, () =>
+  logger.info({ host: config.API_HOST, port: config.API_PORT }, "worker health endpoint listening"),
+);
+
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, "Worker shutdown started");
+  healthServer.close();
   await Promise.all([ingestWorker.close(), deleteWorker.close()]);
   ingestConnection.disconnect();
   deleteConnection.disconnect();

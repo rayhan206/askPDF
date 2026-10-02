@@ -18,6 +18,7 @@ import type { AiProvider } from "@askpdf/ai";
 import { buildIngestJobId, type AskPdfQueues } from "@askpdf/queue";
 import { citationExcerptIsValid, reciprocalRankFusion } from "@askpdf/rag";
 import type { ObjectStorage } from "@askpdf/storage";
+import { WorkerWakeClient } from "../services/worker-wake-client.js";
 import { AppError, notFound } from "./errors.js";
 
 const { Types } = mongoose;
@@ -143,6 +144,7 @@ export class ResourceService {
     private readonly storage: ObjectStorage,
     private readonly queues: AskPdfQueues,
     private readonly ai: AiProvider | null,
+    private readonly workerWakeClient: WorkerWakeClient,
   ) {}
 
   async requireMembership(
@@ -306,6 +308,7 @@ export class ResourceService {
         processingRunId: id(runId),
         correlationId,
       });
+      this.workerWakeClient.wake();
       const document = await DocumentModel.findById(documentId);
       if (!document) throw new AppError(500, "INTERNAL_ERROR", "Created document was not found.");
       return { document: documentDto(document), job: { id: jobId, status: "queued" as const } };
@@ -384,6 +387,7 @@ export class ResourceService {
       );
     }
     await this.queues.enqueueDelete({ schemaVersion: 1, documentId, correlationId });
+    this.workerWakeClient.wake();
     return { documentId, deletionScheduled: true };
   }
 
@@ -422,6 +426,7 @@ export class ResourceService {
       processingRunId: id(run._id),
       correlationId,
     });
+    this.workerWakeClient.wake();
     return {
       documentId,
       status: "queued",

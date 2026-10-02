@@ -12,6 +12,10 @@ const serverEnvironmentSchema = z
     API_PORT: z.coerce.number().int().min(1).max(65535).optional(),
     PORT: z.coerce.number().int().min(1).max(65535).optional(),
     API_PUBLIC_URL: z.url().default("http://localhost:4000"),
+    WORKER_PUBLIC_URL: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.url().optional(),
+    ),
     WEB_ORIGIN: z.url().default("http://localhost:5173"),
     MONGODB_URI: z.string().min(1),
     REDIS_URL: z.string().min(1),

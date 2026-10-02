@@ -46,6 +46,15 @@ describe("AI configuration", () => {
     expect(configuration.API_PORT).toBe(4001);
   });
 
+  it("treats an empty worker URL as disabled", () => {
+    const configuration = loadServerConfig({
+      ...REQUIRED_ENVIRONMENT,
+      WORKER_PUBLIC_URL: "",
+    });
+
+    expect(configuration.WORKER_PUBLIC_URL).toBeUndefined();
+  });
+
   it("requires Gemini credentials in production", () => {
     expect(() =>
       loadServerConfig({
