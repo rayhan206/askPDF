@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { ObjectStorage } from "./index.js";
+import { createStorageProbeCommand, ObjectStorage } from "./index.js";
 
 describe("ObjectStorage", () => {
+  it("uses a bounded object listing for S3-compatible readiness checks", () => {
+    expect(createStorageProbeCommand("askpdf-private").input).toEqual({
+      Bucket: "askpdf-private",
+      MaxKeys: 1,
+    });
+  });
+
   it("signs every header required by a browser upload", async () => {
     const storage = new ObjectStorage({
       endpoint: "http://localhost:9000",

@@ -2,8 +2,8 @@ import { Readable } from "node:stream";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
-  HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -25,6 +25,10 @@ export interface StoredObjectMetadata {
   eTag: string | undefined;
 }
 
+export function createStorageProbeCommand(bucket: string): ListObjectsV2Command {
+  return new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 });
+}
+
 export class ObjectStorage {
   readonly bucket: string;
   private readonly client: S3Client;
@@ -43,7 +47,7 @@ export class ObjectStorage {
   }
 
   async ping(): Promise<void> {
-    await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+    await this.client.send(createStorageProbeCommand(this.bucket));
   }
 
   async createUploadUrl(
